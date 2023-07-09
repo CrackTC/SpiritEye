@@ -1,0 +1,10 @@
+# create by https://github.com/iamcco/coc-gitignore (Mon Jul 10 2023 00:24:57 GMT+0800 (中国标准时间))
+# DotnetCore.gitignore:
+# .NET Core build folders
+/bin
+/obj
+
+# Common node modules locations
+/node_modules
+/wwwroot/node_modules
+
