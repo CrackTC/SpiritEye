@@ -1,4 +1,5 @@
 using System.CommandLine;
+using System.Net;
 using System.Xml;
 using System.Xml.Linq;
 using System.Text.Json;
@@ -10,7 +11,7 @@ namespace SpiritEye
     {
         public static void HandleCommandLine(string[] args)
         {
-            var targetArgument = new Argument<string>("target", "Scan target");
+            var targetArgument = new Argument<List<string>>("target", "Scan target") { Arity = ArgumentArity.OneOrMore };
             var outputOption = new Option<string>(new[] { "-o", "--output" }, "Output file path");
             var rootCommand = new RootCommand("SpiritEye")
             {
@@ -23,41 +24,86 @@ namespace SpiritEye
         }
 
         [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(Result))]
-        static void Handle(string output, string target)
+        static void Handle(string output, List<string> target)
         {
-            using var process = NMapHelper.LaunchNMap(target);
-            if (process is null) return;
+            var processes = NMapHelper.LaunchNMap(target);
+            if (processes is null) return;
 
-            // using var xmlReader = XmlReader.Create(File.OpenRead("/home/chen/result.xml"), new() { DtdProcessing = DtdProcessing.Ignore });
-            using var xmlReader = XmlReader.Create(process.StandardOutput.BaseStream, new() { DtdProcessing = DtdProcessing.Ignore });
+            var tasks = new List<Task<Dictionary<string, Result>>>();
+            var results = new Dictionary<string, Result>();
 
-            Dictionary<string, Result> results = new();
+            ServicePointManager.ServerCertificateValidationCallback += (_, _, _, _) => true;
 
-            Utils.WithCursorHidden(() =>
+            PostProcessing.OS.Register();
+            PostProcessing.App.Register();
+            PostProcessing.HoneyPot.Register();
+            PostProcessing.Device.Register();
+            PostProcessing.Protocol.Register();
+
+
+            processes.ForEach(process =>
             {
-                while (xmlReader.Read())
+                tasks.Add(Task.Run(() =>
                 {
-                    switch (xmlReader.NodeType)
+                    process.Start();
+
+                    // using var xmlReader = XmlReader.Create(File.OpenRead("/home/chen/result.xml"), new() { DtdProcessing = DtdProcessing.Ignore });
+                    using var xmlReader = XmlReader.Create(process.StandardOutput.BaseStream, new() { DtdProcessing = DtdProcessing.Ignore });
+                    var taskResults = new Dictionary<string, Result>();
+
+                    var tasks = new List<Task<(string, Result)>>();
+
+                    using (process)
                     {
-                        case XmlNodeType.Element:
-                            switch (xmlReader.Name)
+                        Utils.WithCursorHidden(() =>
+                        {
+                            while (xmlReader.Read())
                             {
-                                case "taskprogress":
-                                    var task = xmlReader.GetAttribute("task") ?? "";
-                                    var percent = float.Parse(xmlReader.GetAttribute("percent") ?? "0.00");
-                                    Utils.ProgressBar(percent, task);
-                                    break;
-                                case "host":
-                                    XElement host = (XElement)XElement.ReadFrom(xmlReader);
-                                    var (ip, result) = ParseResult(host);
-                                    results[ip] = result;
-                                    break;
+                                if (xmlReader.NodeType == XmlNodeType.Element)
+                                {
+                                    try
+                                    {
+                                        switch (xmlReader.Name)
+                                        {
+                                            case "taskprogress":
+                                                var task = xmlReader.GetAttribute("task") ?? "";
+                                                var percent = float.Parse(xmlReader.GetAttribute("percent") ?? "0.00");
+                                                Utils.ProgressBar(percent, task);
+                                                break;
+                                            case "host":
+                                                XElement host = (XElement)XElement.ReadFrom(xmlReader);
+                                                tasks.Add(ParseResult(host));
+                                                break;
+                                        }
+                                    }
+                                    catch (Exception? e)
+                                    {
+                                        Utils.Error(e.Message);
+                                    }
+                                }
+
                             }
-                            break;
-                        default:
-                            break;
+                        });
+
+                        Task.WaitAll(tasks.ToArray());
+                        tasks.ForEach(task =>
+                        {
+                            var (ip, result) = task.Result;
+                            taskResults[ip] = result;
+                        });
+                        return taskResults;
                     }
-                }
+                }));
+            });
+
+            Task.WaitAll(tasks.ToArray());
+
+            tasks.ForEach(task =>
+            {
+                var taskResults = task.Result;
+
+                foreach (var (ip, result) in taskResults)
+                    results[ip] = result;
             });
 
             // output to file
@@ -71,43 +117,53 @@ namespace SpiritEye
                 Console.WriteLine();
                 Console.WriteLine(JsonSerializer.Serialize(results, new JsonSerializerOptions { WriteIndented = true }));
             }
-
             Utils.Info("Scan finished");
         }
 
-        static (string IP, Result Result) ParseResult(XElement hostElement)
+        static async Task<(string, Result)> ParseResult(XElement hostElement)
         {
             var ip = hostElement.Element("address")!.Attribute("addr")!.Value;
+
             var services = hostElement.Element("ports")!.Elements("port")
                 .Where(port => port.Element("state")!.Attribute("state")!.Value == "open")
                 .Select(port =>
                 {
                     var portId = int.Parse(port.Attribute("portid")!.Value);
-                    var protocol = port.Attribute("protocol")!.Value;
-
-                    var serviceElement = port.Element("service")!;
-                    var product = serviceElement.Attribute("product")?.Value;
-
-                    if (product is null)
-                    {
-                        return new Service(portId, protocol, null);
-                    }
-                    else
-                    {
-                        var version = serviceElement.Attribute("version")?.Value;
-
-                        // [TODO) Additional service apps detection
-                        return new Service(portId, protocol, new[] { new ServiceApp(product, version) });
-                    }
+                    var serviceElement = port.Element("service");
+                    return (portId, serviceElement);
                 });
 
-            // [TODO) Additional device info detection
-            DeviceInfo? deviceInfo = null;
+            var taskInfos = (from service in services
+                             select (service.portId, task: PostProcess.Process(ip, service.portId, service.serviceElement))).ToList();
 
-            // [TODO) honeypot detection
-            var honeyPots = new HoneyPot[] { };
+            await Task.WhenAll(taskInfos.Select(taskInfo => taskInfo.task));
 
-            return (ip, new Result(services, deviceInfo, honeyPots));
+            var results = from taskInfo in taskInfos
+                          select (taskInfo.portId, processResults: taskInfo.task.Result);
+
+            var processedServices = from result in results
+                                    let port = result.portId
+                                    let protocols = from processResult in result.processResults
+                                                    where processResult.Type == PostProcessResultType.Protocol
+                                                    select processResult.Protocol
+                                    let processResults = result.processResults
+                                    let serviceApps = from processResult in processResults
+                                                      where processResult.Type == PostProcessResultType.ServiceApp
+                                                      select processResult.ServiceApp
+                                    select new Service(port, protocols.FirstOrDefault(), serviceApps.Any() ? serviceApps : null);
+
+            var deviceInfo = from result in results
+                             from processResult in result.processResults
+                             where processResult.Type == PostProcessResultType.Device
+                             select processResult.DeviceInfo;
+
+            var honeyPots = from result in results
+                            from processResult in result.processResults
+                            where processResult.Type == PostProcessResultType.HoneyPot
+                            select processResult.HoneyPot;
+
+
+            return (ip, new(processedServices, deviceInfo.Any() ? deviceInfo : null, honeyPots.Any() ? honeyPots : null));
         }
     }
 }

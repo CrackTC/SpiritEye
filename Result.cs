@@ -28,6 +28,13 @@ namespace SpiritEye
         [JsonPropertyName("service_app")]
         public IEnumerable<string>? ServiceApps { get; }
 
+        public Service(int port, string? protocol, IEnumerable<string>? serviceApps)
+        {
+            Port = port;
+            Protocol = protocol;
+            ServiceApps = serviceApps;
+        }
+
         [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(ServiceApp))]
         public Service(int port, string? protocol, IEnumerable<ServiceApp>? serviceApps)
         {
@@ -79,24 +86,24 @@ namespace SpiritEye
         public IEnumerable<Service> Services { get; }
 
         [JsonPropertyName("deviceinfo")]
-        public string? DeviceInfo { get; }
+        public IEnumerable<string>? DeviceInfo { get; }
 
         [JsonPropertyName("honeypot")]
         public IEnumerable<string>? HoneyPots { get; }
 
         // yyyy-MM-dd HH:mm:ss
-        [JsonPropertyName("timestamp")]
-        public string TimeStamp { get; }
+        // [JsonPropertyName("timestamp")]
+        // public string TimeStamp { get; }
 
         [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(Service))]
         [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(DeviceInfo))]
         [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(HoneyPot))]
-        public Result(IEnumerable<Service> services, DeviceInfo? deviceInfo, IEnumerable<HoneyPot>? honeyPots)
+        public Result(IEnumerable<Service> services, IEnumerable<DeviceInfo>? deviceInfo, IEnumerable<HoneyPot>? honeyPots)
         {
             Services = services;
-            DeviceInfo = deviceInfo?.ToString();
+            DeviceInfo = deviceInfo?.Select(deviceInfo => deviceInfo.ToString()).Distinct();
             HoneyPots = honeyPots?.Select(honeyPot => honeyPot.ToString());
-            TimeStamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            // TimeStamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
         }
     }
 }
