@@ -1,4 +1,5 @@
 using System.CommandLine;
+using System.Dynamic;
 using System.Net;
 using System.Xml;
 using System.Xml.Linq;
@@ -11,20 +12,59 @@ namespace SpiritEye
     {
         public static void HandleCommandLine(string[] args)
         {
-            var targetArgument = new Argument<List<string>>("target", "Scan target") { Arity = ArgumentArity.OneOrMore };
             var outputOption = new Option<string>(new[] { "-o", "--output" }, "Output file path");
+
+            var targetArgument = new Argument<List<string>>("target", "Scan target") { Arity = ArgumentArity.OneOrMore };
+            var scanCommand = new Command("scan", "Scan target")
+            {
+                outputOption,
+                targetArgument
+            };
+            scanCommand.SetHandler(Scan, outputOption, targetArgument);
+
+            var mergeArgument = new Argument<List<string>>("files", "Scan result files") { Arity = ArgumentArity.OneOrMore };
+            var mergeCommand = new Command("merge", "Merge scan results")
+            {
+                outputOption,
+                mergeArgument
+            };
+            mergeCommand.SetHandler(Merge, outputOption, mergeArgument);
+
+
             var rootCommand = new RootCommand("SpiritEye")
             {
-                targetArgument,
-                outputOption
+                scanCommand,
+                mergeCommand
             };
-
-            rootCommand.SetHandler(Handle, outputOption, targetArgument);
             rootCommand.Invoke(args);
         }
 
+        static void Merge(string output, List<string> files)
+        {
+            var results = new Dictionary<string, dynamic>();
+
+            files.ForEach(file =>
+            {
+                using var stream = File.OpenRead(file);
+                var scanResult = JsonSerializer.Deserialize<Dictionary<string, dynamic>>(stream);
+                foreach (var (ip, result) in scanResult!)
+                    results[ip] = result;
+            });
+
+            if (output != null)
+            {
+                using var file = File.OpenWrite(output);
+                JsonSerializer.Serialize(file, results, new JsonSerializerOptions { WriteIndented = true });
+            }
+            else
+            {
+                Console.WriteLine();
+                Console.WriteLine(JsonSerializer.Serialize(results, new JsonSerializerOptions { WriteIndented = true }));
+            }
+        }
+
         [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(Result))]
-        static void Handle(string output, List<string> target)
+        static void Scan(string output, List<string> target)
         {
             var processes = NMapHelper.LaunchNMap(target);
             if (processes is null) return;
@@ -89,7 +129,8 @@ namespace SpiritEye
                         tasks.ForEach(task =>
                         {
                             var (ip, result) = task.Result;
-                            taskResults[ip] = result;
+                            if (ip != "")
+                                taskResults[ip] = result;
                         });
                         return taskResults;
                     }
@@ -122,48 +163,55 @@ namespace SpiritEye
 
         static async Task<(string, Result)> ParseResult(XElement hostElement)
         {
-            var ip = hostElement.Element("address")!.Attribute("addr")!.Value;
+            try
+            {
+                var ip = hostElement.Element("address")!.Attribute("addr")!.Value;
 
-            var services = hostElement.Element("ports")!.Elements("port")
-                .Where(port => port.Element("state")!.Attribute("state")!.Value == "open")
-                .Select(port =>
-                {
-                    var portId = int.Parse(port.Attribute("portid")!.Value);
-                    var serviceElement = port.Element("service");
-                    return (portId, serviceElement);
-                });
+                var services = hostElement.Element("ports")!.Elements("port")
+                    .Where(port => port.Element("state")!.Attribute("state")!.Value == "open")
+                    .Select(port =>
+                    {
+                        var portId = int.Parse(port.Attribute("portid")!.Value);
+                        var serviceElement = port.Element("service");
+                        return (portId, serviceElement);
+                    });
 
-            var taskInfos = (from service in services
-                             select (service.portId, task: PostProcess.Process(ip, service.portId, service.serviceElement))).ToList();
+                var taskInfos = (from service in services
+                                 select (service.portId, task: PostProcess.Process(ip, service.portId, service.serviceElement))).ToList();
 
-            await Task.WhenAll(taskInfos.Select(taskInfo => taskInfo.task));
+                await Task.WhenAll(taskInfos.Select(taskInfo => taskInfo.task));
 
-            var results = from taskInfo in taskInfos
-                          select (taskInfo.portId, processResults: taskInfo.task.Result);
+                var results = from taskInfo in taskInfos
+                              select (taskInfo.portId, processResults: taskInfo.task.Result);
 
-            var processedServices = from result in results
-                                    let port = result.portId
-                                    let protocols = from processResult in result.processResults
-                                                    where processResult.Type == PostProcessResultType.Protocol
-                                                    select processResult.Protocol
-                                    let processResults = result.processResults
-                                    let serviceApps = from processResult in processResults
-                                                      where processResult.Type == PostProcessResultType.ServiceApp
-                                                      select processResult.ServiceApp
-                                    select new Service(port, protocols.FirstOrDefault(), serviceApps.Any() ? serviceApps : null);
+                var processedServices = from result in results
+                                        let port = result.portId
+                                        let protocols = from processResult in result.processResults
+                                                        where processResult.Type == PostProcessResultType.Protocol
+                                                        select processResult.Protocol
+                                        let processResults = result.processResults
+                                        let serviceApps = from processResult in processResults
+                                                          where processResult.Type == PostProcessResultType.ServiceApp
+                                                          select processResult.ServiceApp
+                                        select new Service(port, protocols.FirstOrDefault(), serviceApps.Any() ? serviceApps : null);
 
-            var deviceInfo = from result in results
-                             from processResult in result.processResults
-                             where processResult.Type == PostProcessResultType.Device
-                             select processResult.DeviceInfo;
+                var deviceInfo = from result in results
+                                 from processResult in result.processResults
+                                 where processResult.Type == PostProcessResultType.Device
+                                 select processResult.DeviceInfo;
 
-            var honeyPots = from result in results
-                            from processResult in result.processResults
-                            where processResult.Type == PostProcessResultType.HoneyPot
-                            select processResult.HoneyPot;
+                var honeyPots = from result in results
+                                from processResult in result.processResults
+                                where processResult.Type == PostProcessResultType.HoneyPot
+                                select processResult.HoneyPot;
 
-
-            return (ip, new(processedServices, deviceInfo.Any() ? deviceInfo : null, honeyPots.Any() ? honeyPots : null));
+                return (ip, new(processedServices, deviceInfo.Any() ? deviceInfo : null, honeyPots.Any() ? honeyPots : null));
+            }
+            catch (Exception? e)
+            {
+                Utils.Error(e.Message);
+                return ("", new(Enumerable.Empty<Service>(), null, null));
+            }
         }
     }
 }

@@ -21,7 +21,10 @@ namespace SpiritEye.PostProcessing
                 {
                     AllowAutoRedirect = true,
                     ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true
-                });
+                })
+                {
+                    Timeout = TimeSpan.FromSeconds(10)
+                };
                 using var responseHttp = client.GetAsync($"http://{ip}:{port}/").Result;
                 var content = responseHttp.Content.ReadAsStringAsync().Result;
 

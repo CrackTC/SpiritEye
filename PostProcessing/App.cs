@@ -30,46 +30,53 @@ namespace SpiritEye.PostProcessing
 
         public static PostProcessor OpenSSH = (_, _, serviceElement) =>
         {
-            if (Regex.IsMatch(serviceElement.ToString(), "openssh", RegexOptions.IgnoreCase))
+            if (Regex.IsMatch(serviceElement.Attribute("product")?.Value ?? "", "openssh", RegexOptions.IgnoreCase))
             {
-                var version = serviceElement.Attribute("version")?.Value ?? "";
-                version = Regex.Replace(version, @"^([0-9.]+).*$", "$1");
-                if (string.IsNullOrEmpty(version))
+                var match = Regex.Match(serviceElement.Attribute("version")?.Value ?? "", @"([0-9.]+)", RegexOptions.IgnoreCase);
+                if (match.Success)
                 {
-                    var rawXml = serviceElement.ToString();
-                    rawXml = Regex.Unescape(rawXml);
-                    var match = Regex.Match(rawXml, @"OpenSSH_([0-9.]+)", RegexOptions.IgnoreCase);
-                    if (match.Success)
+                    var version = match.Groups[1].Value;
+                    return new()
                     {
-                        version = match.Groups[1].Value;
-                    }
-                    else
-                    {
-                        version = "N";
-                    }
+                        Type = PostProcessResultType.ServiceApp,
+                        ServiceApp = "openssh/" + version,
+                    };
                 }
-
-                return new()
-                {
-                    Type = PostProcessResultType.ServiceApp,
-                    ServiceApp = "openssh/" + version,
-                };
             }
-            else
+            else if (Regex.IsMatch(serviceElement.Attribute("extrainfo")?.Value ?? "", "openssh", RegexOptions.IgnoreCase))
             {
-                return new()
+                var match = Regex.Match(serviceElement.Attribute("extrainfo")?.Value ?? "", @"OpenSSH(?:_|/| )([0-9.]+)", RegexOptions.IgnoreCase);
+                if (match.Success)
                 {
-                    Type = PostProcessResultType.None
-                };
+                    var version = match.Groups[1].Value;
+                    return new()
+                    {
+                        Type = PostProcessResultType.ServiceApp,
+                        ServiceApp = "openssh/" + version,
+                    };
+                }
             }
+            return new()
+            {
+                Type = PostProcessResultType.None
+            };
         };
 
         public static PostProcessor OpenSSL = (_, _, serviceElement) =>
         {
-            if (serviceElement.Attribute("extrainfo")?.Value.ToLower().Contains("openssl") is true)
+            if (Regex.IsMatch(serviceElement.Attribute("extrainfo")?.Value ?? "", "openssl", RegexOptions.IgnoreCase))
             {
                 var version = serviceElement.Attribute("extrainfo")?.Value ?? "";
-                version = Regex.Replace(version, @"^.*?([0-9.]+).*$", "$1");
+                var match = Regex.Match(version, @"OpenSSL(?:_|/| )([0-9.]+)", RegexOptions.IgnoreCase);
+
+                if (match.Success)
+                {
+                    version = match.Groups[1].Value;
+                }
+                else
+                {
+                    version = "N";
+                }
 
                 return new()
                 {
@@ -92,7 +99,10 @@ namespace SpiritEye.PostProcessing
                 {
                     ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true,
                     AllowAutoRedirect = false,
-                });
+                })
+                {
+                    Timeout = TimeSpan.FromSeconds(10)
+                };
                 using var responseHttp = client.GetAsync($"http://{ip}:{port}/wp-login.php").Result;
 
                 responseHttp.Headers.TryGetValues("X-Redirect-By", out var xRedirectBy);
@@ -130,8 +140,10 @@ namespace SpiritEye.PostProcessing
 
         public static PostProcessor LiteSpeed = (_, _, serviceElement) =>
         {
-            if (Regex.IsMatch(serviceElement.ToString(), "LiteSpeed", RegexOptions.IgnoreCase))
+            if (Regex.IsMatch(serviceElement.Attribute("product")?.Value ?? "", "LiteSpeed", RegexOptions.IgnoreCase))
             {
+                var version = serviceElement.Attribute("version")?.Value ?? "N";
+
                 return new()
                 {
                     Type = PostProcessResultType.ServiceApp,
@@ -147,7 +159,7 @@ namespace SpiritEye.PostProcessing
 
         public static PostProcessor Jetty = (_, _, serviceElement) =>
         {
-            if (Regex.IsMatch(serviceElement.ToString(), "Jetty", RegexOptions.IgnoreCase))
+            if (Regex.IsMatch(serviceElement.Attribute("product")?.Value ?? "", "Jetty", RegexOptions.IgnoreCase))
             {
                 var version = serviceElement.Attribute("version")?.Value ?? "N";
 
@@ -166,8 +178,28 @@ namespace SpiritEye.PostProcessing
 
         public static PostProcessor Java = (_, _, serviceElement) =>
         {
-            if (Regex.IsMatch(serviceElement.ToString(), "Java|Apache Tomcat", RegexOptions.IgnoreCase))
+            if (Regex.IsMatch(serviceElement.Attribute("product")?.Value ?? "", "Java", RegexOptions.IgnoreCase))
             {
+                var version = serviceElement.Attribute("version")?.Value ?? "N";
+                return new()
+                {
+                    Type = PostProcessResultType.ServiceApp,
+                    ServiceApp = "java/" + version,
+                };
+            }
+            else if (Regex.IsMatch(serviceElement.Attribute("product")?.Value ?? "", "Apache Tomcat", RegexOptions.IgnoreCase))
+            {
+                var match = Regex.Match(serviceElement.Attribute("extrainfo")?.Value ?? "", @"Java(?:_|/| )([0-9.]+)", RegexOptions.IgnoreCase);
+                if (match.Success)
+                {
+                    var version = match.Groups[1].Value;
+                    return new()
+                    {
+                        Type = PostProcessResultType.ServiceApp,
+                        ServiceApp = "java/" + version,
+                    };
+                }
+
                 return new()
                 {
                     Type = PostProcessResultType.ServiceApp,
@@ -183,7 +215,7 @@ namespace SpiritEye.PostProcessing
 
         public static PostProcessor NodeJS = (_, _, serviceElement) =>
         {
-            if (Regex.IsMatch(serviceElement.ToString(), "node", RegexOptions.IgnoreCase))
+            if (Regex.IsMatch(serviceElement.Attribute("product")?.Value ?? "", "node", RegexOptions.IgnoreCase))
             {
                 var version = serviceElement.Attribute("version")?.Value ?? "N";
                 return new()
@@ -201,12 +233,13 @@ namespace SpiritEye.PostProcessing
 
         public static PostProcessor Express = (_, _, serviceElement) =>
         {
-            if (Regex.IsMatch(serviceElement.ToString(), "express", RegexOptions.IgnoreCase))
+            if (Regex.IsMatch(serviceElement.Attribute("product")?.Value ?? "", "express", RegexOptions.IgnoreCase))
             {
+                var version = serviceElement.Attribute("version")?.Value ?? "N";
                 return new()
                 {
                     Type = PostProcessResultType.ServiceApp,
-                    ServiceApp = "express/N",
+                    ServiceApp = "express/" + version,
                 };
             }
 
@@ -218,12 +251,13 @@ namespace SpiritEye.PostProcessing
 
         public static PostProcessor AspNET = (_, _, serviceElement) =>
         {
-            if (Regex.IsMatch(serviceElement.ToString(), "microsoft asp|kestrel", RegexOptions.IgnoreCase))
+            if (Regex.IsMatch(serviceElement.Attribute("product")?.Value ?? "", "microsoft asp|kestrel", RegexOptions.IgnoreCase))
             {
+                var version = serviceElement.Attribute("version")?.Value ?? "N";
                 return new()
                 {
                     Type = PostProcessResultType.ServiceApp,
-                    ServiceApp = "asp.net/N",
+                    ServiceApp = "asp.net/" + version,
                 };
             }
 
@@ -235,12 +269,29 @@ namespace SpiritEye.PostProcessing
 
         public static PostProcessor PHP = (ip, port, serviceElement) =>
         {
-            if (Regex.IsMatch(serviceElement.ToString(), "php", RegexOptions.IgnoreCase))
+            if (Regex.IsMatch(serviceElement.Attribute("extrainfo")?.Value ?? "", "php", RegexOptions.IgnoreCase))
             {
-                var version = serviceElement.Attribute("version")?.Value ?? "";
-                version = Regex.Replace(version, @"^([0-9.]+).*$", "$1");
-                if (string.IsNullOrEmpty(version))
+                var version = serviceElement.ToString();
+                var match = Regex.Match(version, @"PHP(?:_|/| )([0-9.]+)", RegexOptions.IgnoreCase);
+
+                if (match.Success)
+                {
+                    version = match.Groups[1].Value;
+                }
+                else
+                {
                     version = "N";
+                }
+
+                return new()
+                {
+                    Type = PostProcessResultType.ServiceApp,
+                    ServiceApp = "php/" + version,
+                };
+            }
+            else if (Regex.IsMatch(serviceElement.Attribute("product")?.Value ?? "", "php", RegexOptions.IgnoreCase))
+            {
+                var version = serviceElement.Attribute("version")?.Value ?? "N";
 
                 return new()
                 {
@@ -254,7 +305,10 @@ namespace SpiritEye.PostProcessing
                 {
                     AllowAutoRedirect = false,
                     ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true,
-                });
+                })
+                {
+                    Timeout = TimeSpan.FromSeconds(10)
+                };
 
                 using var responseHttp = client.GetAsync($"http://{ip}:{port}/").Result;
                 responseHttp.Headers.TryGetValues("Set-Cookie", out var cookies);
@@ -289,7 +343,7 @@ namespace SpiritEye.PostProcessing
 
         public static PostProcessor MicrosoftHttpAPI = (_, _, serviceElement) =>
         {
-            if (Regex.IsMatch(serviceElement.ToString(), "microsoft httpapi", RegexOptions.IgnoreCase))
+            if (Regex.IsMatch(serviceElement.Attribute("product")?.Value ?? "", "microsoft httpapi", RegexOptions.IgnoreCase))
             {
                 var version = serviceElement.Attribute("version")?.Value ?? "N";
 
@@ -308,9 +362,29 @@ namespace SpiritEye.PostProcessing
 
         public static PostProcessor RabbitMQ = (ip, port, serviceElement) =>
         {
-            if (Regex.IsMatch(serviceElement.ToString(), "rabbitmq", RegexOptions.IgnoreCase))
+            if (Regex.IsMatch(serviceElement.Attribute("product")?.Value ?? "", "rabbitmq", RegexOptions.IgnoreCase))
             {
                 var version = serviceElement.Attribute("version")?.Value ?? "N";
+
+                return new()
+                {
+                    Type = PostProcessResultType.ServiceApp,
+                    ServiceApp = "rabbitmq/" + version,
+                };
+            }
+            else if (Regex.IsMatch(serviceElement.Attribute("extrainfo")?.Value ?? "", "rabbitmq", RegexOptions.IgnoreCase))
+            {
+                var version = serviceElement.ToString();
+                var match = Regex.Match(version, @"RabbitMQ(?:_|/| )([0-9.]+)", RegexOptions.IgnoreCase);
+
+                if (match.Success)
+                {
+                    version = match.Groups[1].Value;
+                }
+                else
+                {
+                    version = "N";
+                }
 
                 return new()
                 {
@@ -324,7 +398,10 @@ namespace SpiritEye.PostProcessing
                 {
                     AllowAutoRedirect = false,
                     ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true,
-                });
+                })
+                {
+                    Timeout = TimeSpan.FromSeconds(10)
+                };
 
                 using var responseHttp = client.GetAsync($"http://{ip}:{port}/").Result;
                 var content = responseHttp.Content.ReadAsStringAsync().Result;
@@ -359,23 +436,28 @@ namespace SpiritEye.PostProcessing
 
         public static PostProcessor Apache = (_, _, serviceElement) =>
         {
-            if (Regex.IsMatch(serviceElement.ToString(), "apache", RegexOptions.IgnoreCase))
+            if (Regex.IsMatch(serviceElement.Attribute("product")?.Value ?? "", "apache", RegexOptions.IgnoreCase))
             {
-                var version = serviceElement.Attribute("version")?.Value ?? "";
-                version = Regex.Replace(version, @"^([0-9.]+).*$", "$1");
+                var version = serviceElement.Attribute("version")?.Value ?? "N";
 
-                if (string.IsNullOrEmpty(version))
+                return new()
                 {
-                    version = serviceElement.Attribute("product")?.Value ?? "";
-                    var match = Regex.Match(version, @"^Apache/([0-9.]+).*$", RegexOptions.IgnoreCase);
-                    if (match.Success)
-                    {
-                        version = match.Groups[1].Value;
-                    }
-                    else
-                    {
-                        version = "N";
-                    }
+                    Type = PostProcessResultType.ServiceApp,
+                    ServiceApp = "apache/" + version,
+                };
+            }
+            else if (Regex.IsMatch(serviceElement.Attribute("extrainfo")?.Value ?? "", "apache", RegexOptions.IgnoreCase))
+            {
+                var version = serviceElement.ToString();
+                var match = Regex.Match(version, @"Apache(?:_|/| )([0-9.]+)", RegexOptions.IgnoreCase);
+
+                if (match.Success)
+                {
+                    version = match.Groups[1].Value;
+                }
+                else
+                {
+                    version = "N";
                 }
 
                 return new()
@@ -393,7 +475,7 @@ namespace SpiritEye.PostProcessing
 
         public static PostProcessor IIS = (_, _, serviceElement) =>
         {
-            if (Regex.IsMatch(serviceElement.ToString(), " iis ", RegexOptions.IgnoreCase))
+            if (Regex.IsMatch(serviceElement.Attribute("product")?.Value ?? "", " iis ", RegexOptions.IgnoreCase))
             {
                 var version = serviceElement.Attribute("version")?.Value ?? "N";
 
@@ -412,7 +494,7 @@ namespace SpiritEye.PostProcessing
 
         public static PostProcessor Nginx = (_, _, serviceElement) =>
         {
-            if (Regex.IsMatch(serviceElement.ToString(), "nginx", RegexOptions.IgnoreCase))
+            if (Regex.IsMatch(serviceElement.Attribute("product")?.Value ?? "", "nginx", RegexOptions.IgnoreCase))
             {
                 var version = serviceElement.Attribute("version")?.Value ?? "N";
 
@@ -437,7 +519,10 @@ namespace SpiritEye.PostProcessing
                 {
                     AllowAutoRedirect = true,
                     ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true,
-                });
+                })
+                {
+                    Timeout = TimeSpan.FromSeconds(10)
+                };
 
                 using var responseHttp = client.GetAsync($"http://{ip}:{port}/").Result;
                 responseHttp.Headers.TryGetValues("Server", out var server);
@@ -474,9 +559,29 @@ namespace SpiritEye.PostProcessing
 
         public static PostProcessor OpenResty = (_, _, serviceElement) =>
         {
-            if (Regex.IsMatch(serviceElement.ToString(), "openresty", RegexOptions.IgnoreCase))
+            if (Regex.IsMatch(serviceElement.Attribute("product")?.Value ?? "", "openresty", RegexOptions.IgnoreCase))
             {
                 var version = serviceElement.Attribute("version")?.Value ?? "N";
+
+                return new()
+                {
+                    Type = PostProcessResultType.ServiceApp,
+                    ServiceApp = "openresty/" + version,
+                };
+            }
+            else if (Regex.IsMatch(serviceElement.Attribute("extrainfo")?.Value ?? "", "openresty", RegexOptions.IgnoreCase))
+            {
+                var version = serviceElement.ToString();
+                var match = Regex.Match(version, @"OpenResty(?:_|/| )([0-9.]+)", RegexOptions.IgnoreCase);
+
+                if (match.Success)
+                {
+                    version = match.Groups[1].Value;
+                }
+                else
+                {
+                    version = "N";
+                }
 
                 return new()
                 {
@@ -499,7 +604,10 @@ namespace SpiritEye.PostProcessing
                 {
                     AllowAutoRedirect = true,
                     ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true,
-                });
+                })
+                {
+                    Timeout = TimeSpan.FromSeconds(10)
+                };
 
                 using var responseHttp = client.GetAsync($"http://{ip}:{port}/").Result;
 
@@ -533,9 +641,29 @@ namespace SpiritEye.PostProcessing
 
         public static PostProcessor WebLogic = (ip, port, serviceElement) =>
         {
-            if (Regex.IsMatch(serviceElement.ToString(), "weblogic", RegexOptions.IgnoreCase))
+            if (Regex.IsMatch(serviceElement.Attribute("product")?.Value ?? "", "weblogic", RegexOptions.IgnoreCase))
             {
                 var version = serviceElement.Attribute("version")?.Value ?? "N";
+
+                return new()
+                {
+                    Type = PostProcessResultType.ServiceApp,
+                    ServiceApp = "weblogic/" + version,
+                };
+            }
+            else if (Regex.IsMatch(serviceElement.Attribute("extrainfo")?.Value ?? "", "weblogic", RegexOptions.IgnoreCase))
+            {
+                var version = serviceElement.ToString();
+                var match = Regex.Match(version, @"WebLogic(?:_|/| )([0-9.]+)", RegexOptions.IgnoreCase);
+
+                if (match.Success)
+                {
+                    version = match.Groups[1].Value;
+                }
+                else
+                {
+                    version = "N";
+                }
 
                 return new()
                 {
@@ -558,7 +686,10 @@ namespace SpiritEye.PostProcessing
                 {
                     AllowAutoRedirect = true,
                     ServerCertificateCustomValidationCallback = (message, cert, chain, errors) => true,
-                });
+                })
+                {
+                    Timeout = TimeSpan.FromSeconds(10)
+                };
 
                 using var responseHttp = client.GetAsync($"http://{ip}:{port}/").Result;
 
