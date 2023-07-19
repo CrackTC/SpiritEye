@@ -1,5 +1,4 @@
 using System.CommandLine;
-using System.Dynamic;
 using System.Net;
 using System.Xml;
 using System.Xml.Linq;
@@ -13,14 +12,16 @@ namespace SpiritEye
         public static void HandleCommandLine(string[] args)
         {
             var outputOption = new Option<string>(new[] { "-o", "--output" }, "Output file path");
+            var portsOption = new Option<string>(new[] { "-p", "--ports" }, "Ports to scan");
 
             var targetArgument = new Argument<List<string>>("target", "Scan target") { Arity = ArgumentArity.OneOrMore };
             var scanCommand = new Command("scan", "Scan target")
             {
                 outputOption,
-                targetArgument
+                portsOption,
+                targetArgument,
             };
-            scanCommand.SetHandler(Scan, outputOption, targetArgument);
+            scanCommand.SetHandler(Scan, outputOption, targetArgument, portsOption);
 
             var mergeArgument = new Argument<List<string>>("files", "Scan result files") { Arity = ArgumentArity.OneOrMore };
             var mergeCommand = new Command("merge", "Merge scan results")
@@ -64,9 +65,9 @@ namespace SpiritEye
         }
 
         [DynamicDependency(DynamicallyAccessedMemberTypes.All, typeof(Result))]
-        static void Scan(string output, List<string> target)
+        static void Scan(string output, List<string> target, string ports)
         {
-            var processes = NMapHelper.LaunchNMap(target);
+            var processes = NMapHelper.LaunchNMap(target, ports);
             if (processes is null) return;
 
             var tasks = new List<Task<Dictionary<string, Result>>>();

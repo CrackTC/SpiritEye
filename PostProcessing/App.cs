@@ -147,7 +147,7 @@ namespace SpiritEye.PostProcessing
                 return new()
                 {
                     Type = PostProcessResultType.ServiceApp,
-                    ServiceApp = "LiteSpeed/N",
+                    ServiceApp = "LiteSpeed/" + version,
                 };
             }
 
